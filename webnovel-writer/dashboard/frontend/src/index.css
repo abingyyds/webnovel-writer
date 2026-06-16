@@ -474,6 +474,53 @@ pre {
   font-weight: 500;
 }
 
+.model-router-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.model-router-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(320px, 1.1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.model-router-summary,
+.model-config-form {
+  min-width: 0;
+}
+
+.model-config-form {
+  display: grid;
+  gap: 10px;
+}
+
+.model-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.model-meta-grid > div {
+  min-width: 0;
+  border: 2px solid var(--border-soft);
+  background: var(--bg-panel);
+  padding: 8px 10px;
+}
+
+.model-meta-grid strong {
+  display: block;
+  overflow: hidden;
+  margin-top: 2px;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .progress-track {
   margin-top: 8px;
   height: 12px;
@@ -923,6 +970,7 @@ pre {
   .content-grid.two-columns,
   .split-layout,
   .files-layout,
+  .model-router-grid,
   .writer-grid,
   .auth-panel {
     grid-template-columns: 1fr;
@@ -1012,6 +1060,19 @@ pre {
   .filter-btn {
     width: 100%;
     justify-content: center;
+  }
+
+  .model-router-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .model-router-actions .badge {
+    flex: 1;
+  }
+
+  .model-meta-grid {
+    grid-template-columns: 1fr;
   }
 
   .folder-title,

@@ -6,8 +6,10 @@ import {
     fetchCommits,
     fetchContractsSummary,
     fetchEnvStatus,
+    fetchSubrouterModels,
     fetchStoryRuntimeHealth,
     probeEnvStatus,
+    saveSubrouterSettings,
 } from '../api.js'
 import { formatChapterLabel, formatDateTime, formatNumber } from '../lib/format.js'
 
@@ -26,6 +28,12 @@ function projectionSummary(projectionStatus) {
     return values.join(' / ')
 }
 
+function modelTypeLabel(type) {
+    if (type === 'image') return '图像'
+    if (type === 'video') return '视频'
+    return '文本'
+}
+
 function StatCard({ label, value, sub, tone = 'plain' }) {
     return (
         <article className="card stat-card">
@@ -37,13 +45,29 @@ function StatCard({ label, value, sub, tone = 'plain' }) {
 }
 
 export default function SystemPage() {
-    const { refreshToken } = useDashboardContext()
+    const { auth, setAuth, refreshToken } = useDashboardContext()
     const [runtimeHealth, setRuntimeHealth] = useState(null)
     const [contractsSummary, setContractsSummary] = useState(null)
     const [commits, setCommits] = useState([])
     const [envStatus, setEnvStatus] = useState(null)
     const [probeResult, setProbeResult] = useState(null)
     const [probing, setProbing] = useState(false)
+    const [models, setModels] = useState([])
+    const [selectedModel, setSelectedModel] = useState(auth?.user?.subrouter?.default_model || '')
+    const [customModel, setCustomModel] = useState('')
+    const [modelRefreshToken, setModelRefreshToken] = useState(0)
+    const [loadingModels, setLoadingModels] = useState(false)
+    const [savingModel, setSavingModel] = useState(false)
+    const [modelError, setModelError] = useState('')
+    const [modelSavedAt, setModelSavedAt] = useState('')
+
+    const configured = Boolean(auth?.user?.subrouter?.configured)
+    const defaultModel = auth?.user?.subrouter?.default_model || ''
+    const distributorName = auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug || ''
+
+    useEffect(() => {
+        setSelectedModel(defaultModel)
+    }, [defaultModel])
 
     useEffect(() => {
         let cancelled = false
@@ -67,7 +91,109 @@ export default function SystemPage() {
         }
     }, [refreshToken])
 
+    useEffect(() => {
+        if (!configured) {
+            setModels([])
+            return undefined
+        }
+
+        let cancelled = false
+        setLoadingModels(true)
+        setModelError('')
+        fetchSubrouterModels()
+            .then(payload => {
+                if (cancelled) return
+                const nextModels = payload.models || []
+                setModels(nextModels)
+                setSelectedModel(current => (
+                    current
+                    || payload.default_model
+                    || defaultModel
+                    || nextModels.find(item => item.type === 'text')?.id
+                    || nextModels[0]?.id
+                    || ''
+                ))
+            })
+            .catch(err => {
+                if (!cancelled) setModelError(err.message || '模型列表读取失败')
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingModels(false)
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [configured, defaultModel, modelRefreshToken, refreshToken])
+
     const latestCommit = commits[0] || null
+    const setupRows = useMemo(() => {
+        const hasMaster = Boolean(contractsSummary?.master?.exists)
+        const hasCommit = Boolean(latestCommit || runtimeHealth?.latest_commit_status === 'accepted')
+        const vectorReady = Boolean(envStatus?.vector_db?.exists && !envStatus?.vector_db?.error)
+        const embedReady = Boolean(envStatus?.embed?.api_key_present)
+        const rerankReady = Boolean(envStatus?.rerank?.api_key_present)
+
+        return [
+            {
+                name: '模型路由',
+                ok: configured && Boolean(defaultModel || selectedModel),
+                detail: configured
+                    ? `默认模型：${defaultModel || selectedModel || '未选择'}`
+                    : '需要先用 SubRouter 登录或配置 API Key',
+                action: '影响创作台生成调用',
+                required: true,
+            },
+            {
+                name: '故事主档',
+                ok: hasMaster,
+                detail: hasMaster ? '主合同已存在' : '新项目尚未完成主设定初始化',
+                action: '开始正式连载前需要补齐',
+                required: true,
+            },
+            {
+                name: '章节入账',
+                ok: hasCommit,
+                detail: hasCommit ? '已有章节 commit' : '还没有完成任何章节 commit',
+                action: '写完第一章并通过提交后会恢复 Mainline',
+                required: false,
+            },
+            {
+                name: '语义检索',
+                ok: embedReady && vectorReady,
+                detail: envStatus?.rag_mode === 'full'
+                    ? '向量检索已启用'
+                    : '当前会退回 BM25 关键词检索',
+                action: '不阻塞生成，但长篇回忆能力会弱一些',
+                required: false,
+            },
+            {
+                name: '重排检索',
+                ok: rerankReady,
+                detail: rerankReady ? 'rerank 已配置' : '未配置 rerank key',
+                action: '可选增强，不影响基础写作',
+                required: false,
+            },
+        ]
+    }, [configured, contractsSummary, defaultModel, envStatus, latestCommit, runtimeHealth, selectedModel])
+
+    const modelOptions = useMemo(() => {
+        if (selectedModel && !models.some(item => item.id === selectedModel)) {
+            return [{ id: selectedModel, type: 'text' }, ...models]
+        }
+        return models
+    }, [models, selectedModel])
+
+    const modelStats = useMemo(() => (
+        models.reduce(
+            (stats, item) => {
+                const type = item.type === 'image' || item.type === 'video' ? item.type : 'text'
+                return { ...stats, [type]: stats[type] + 1 }
+            },
+            { text: 0, image: 0, video: 0 },
+        )
+    ), [models])
+
     const contractRows = useMemo(() => {
         if (!contractsSummary) return []
         return [
@@ -133,6 +259,30 @@ export default function SystemPage() {
         ]
     }, [envStatus, probeResult])
 
+    async function saveModelSettings(event) {
+        event.preventDefault()
+        const nextModel = customModel.trim() || selectedModel.trim()
+        if (!nextModel) {
+            setModelError('请选择或填写模型 ID')
+            return
+        }
+
+        setSavingModel(true)
+        setModelError('')
+        setModelSavedAt('')
+        try {
+            const payload = await saveSubrouterSettings({ defaultModel: nextModel })
+            setAuth(current => ({ ...current, user: payload.user }))
+            setSelectedModel(payload.user?.subrouter?.default_model || nextModel)
+            setCustomModel('')
+            setModelSavedAt(new Date().toISOString())
+        } catch (err) {
+            setModelError(err.message || '保存模型失败')
+        } finally {
+            setSavingModel(false)
+        }
+    }
+
     return (
         <section className="dashboard-page">
             <header className="page-header">
@@ -160,7 +310,123 @@ export default function SystemPage() {
                     value={formatNumber(envStatus?.vector_db?.record_count || 0)}
                     sub={`${envStatus?.vector_db?.size_bytes || 0} bytes`}
                 />
+                <StatCard
+                    label="Model Router"
+                    value={configured ? 'Ready' : 'Missing'}
+                    sub={defaultModel || selectedModel || '未选择默认模型'}
+                />
             </div>
+
+            <article className="card">
+                <div className="card-header">
+                    <div>
+                        <div className="section-label">MODEL ROUTER</div>
+                        <div className="card-title">智能路由模型</div>
+                    </div>
+                    <div className="model-router-actions">
+                        <Badge tone={configured ? 'green' : 'amber'}>{configured ? '已连接' : '未连接'}</Badge>
+                        <button
+                            type="button"
+                            className="page-btn"
+                            disabled={!configured || loadingModels}
+                            onClick={() => setModelRefreshToken(current => current + 1)}
+                        >
+                            {loadingModels ? '读取中...' : '刷新模型'}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="model-router-grid">
+                    <div className="model-router-summary">
+                        <div className="selected-path">
+                            当前默认：{defaultModel || selectedModel || '未选择'}
+                        </div>
+                        <div className="model-meta-grid">
+                            <div>
+                                <span className="stat-label">账号</span>
+                                <strong>{distributorName || auth?.user?.username || '当前账号'}</strong>
+                            </div>
+                            <div>
+                                <span className="stat-label">模型数</span>
+                                <strong>{formatNumber(models.length)}</strong>
+                            </div>
+                            <div>
+                                <span className="stat-label">文本</span>
+                                <strong>{formatNumber(modelStats.text)}</strong>
+                            </div>
+                            <div>
+                                <span className="stat-label">图像 / 视频</span>
+                                <strong>{formatNumber(modelStats.image)} / {formatNumber(modelStats.video)}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <form className="model-config-form" onSubmit={saveModelSettings}>
+                        <label className="form-field">
+                            <span>默认模型</span>
+                            <select
+                                value={selectedModel}
+                                onChange={event => setSelectedModel(event.target.value)}
+                                disabled={!configured || loadingModels}
+                            >
+                                <option value="">{loadingModels ? '读取中...' : '请选择模型'}</option>
+                                {modelOptions.map(item => (
+                                    <option key={item.id} value={item.id}>
+                                        {modelTypeLabel(item.type)} · {item.id}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                        <label className="form-field">
+                            <span>自定义模型 ID</span>
+                            <input
+                                value={customModel}
+                                onChange={event => setCustomModel(event.target.value)}
+                                placeholder="不在列表中时填写"
+                                disabled={!configured}
+                            />
+                        </label>
+                        <button type="submit" className="page-btn" disabled={!configured || savingModel}>
+                            {savingModel ? '保存中...' : '保存模型'}
+                        </button>
+                    </form>
+                </div>
+
+                {modelError ? <div className="form-error">{modelError}</div> : null}
+                {modelSavedAt ? (
+                    <div className="diagnosis-meta">
+                        已保存：{formatDateTime(modelSavedAt)}
+                    </div>
+                ) : null}
+            </article>
+
+            <article className="card">
+                <div className="card-header">
+                    <div>
+                        <div className="section-label">SETUP CHECKLIST</div>
+                        <div className="card-title">需要处理吗</div>
+                    </div>
+                    <Badge tone={setupRows.every(row => row.ok || !row.required) ? 'green' : 'amber'}>
+                        {setupRows.filter(row => row.required && !row.ok).length} 项必处理
+                    </Badge>
+                </div>
+                <DataTable
+                    columns={[
+                        { key: 'name', label: '项目' },
+                        {
+                            key: 'ok',
+                            label: '状态',
+                            render: row => <Badge tone={row.ok ? 'green' : row.required ? 'red' : 'amber'}>{row.ok ? 'OK' : row.required ? '需处理' : '可选'}</Badge>,
+                        },
+                        { key: 'detail', label: '当前情况' },
+                        { key: 'action', label: '建议' },
+                    ]}
+                    rows={setupRows}
+                    rowKey="name"
+                    pageSize={6}
+                    minWidth={760}
+                />
+            </article>
 
             <article className="card">
                 <div className="card-header">

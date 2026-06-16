@@ -47,6 +47,35 @@ def _create_dashboard_client(monkeypatch, project_root: Path) -> TestClient:
     return TestClient(app)
 
 
+def _create_platform_dashboard_client(monkeypatch, data_dir: Path) -> TestClient:
+    plugin_root = Path(__file__).resolve().parents[3]
+    scripts_dir = plugin_root / "scripts"
+
+    clean_path = []
+    scripts_resolved = scripts_dir.resolve()
+    for entry in sys.path:
+        try:
+            if Path(entry).resolve() == scripts_resolved:
+                continue
+        except Exception:
+            pass
+        clean_path.append(entry)
+
+    if str(plugin_root) not in clean_path:
+        clean_path.insert(0, str(plugin_root))
+
+    monkeypatch.setenv("WEBNOVEL_PLATFORM_ENABLED", "1")
+    monkeypatch.setenv("WEBNOVEL_DATA_DIR", str(data_dir))
+    monkeypatch.setattr(sys, "path", clean_path)
+    for name in list(sys.modules):
+        if name in {"dashboard.app", "dashboard.platform"} or name == "data_modules" or name.startswith("data_modules."):
+            sys.modules.pop(name, None)
+
+    module = importlib.import_module("dashboard.app")
+    app = module.create_app(None)
+    return TestClient(app)
+
+
 def _write_state(project_root: Path) -> None:
     state = {
         "project_info": {
@@ -351,6 +380,80 @@ def test_dashboard_app_imports_without_scripts_path(monkeypatch, tmp_path):
 
     response = client.get("/api/story-runtime/health")
     assert response.status_code == 200
+
+
+def test_platform_accounts_keep_projects_and_settings_isolated(monkeypatch, tmp_path):
+    client = _create_platform_dashboard_client(monkeypatch, tmp_path / "platform-data")
+
+    alice_response = client.post(
+        "/api/auth/register",
+        json={"username": "alice", "password": "secret1"},
+    )
+    assert alice_response.status_code == 200
+    alice_cookie = alice_response.cookies.get("ww_session")
+    assert alice_cookie
+    alice_headers = {"cookie": f"ww_session={alice_cookie}"}
+    alice_payload = alice_response.json()
+    alice_project_id = (
+        alice_payload["current_project"]["id"]
+        if alice_payload.get("current_project")
+        else alice_payload["projects"][0]["id"]
+    )
+    assert "path" not in alice_payload["projects"][0]
+    assert alice_payload["user"]["writer_settings"] == {"temperature": 0.7, "max_tokens": 1800}
+
+    alice_settings = client.put(
+        "/api/user/subrouter",
+        headers=alice_headers,
+        json={"defaultModel": "alice-model", "temperature": 1.1, "maxTokens": 4096},
+    )
+    assert alice_settings.status_code == 200
+    assert alice_settings.json()["user"]["subrouter"]["default_model"] == "alice-model"
+    assert alice_settings.json()["user"]["writer_settings"] == {"temperature": 1.1, "max_tokens": 4096}
+
+    alice_create = client.post(
+        "/api/projects",
+        headers=alice_headers,
+        json={"name": "Alice Book"},
+    )
+    assert alice_create.status_code == 200
+    assert "path" not in alice_create.json()["project"]
+
+    bob_response = client.post(
+        "/api/auth/register",
+        json={"username": "bob", "password": "secret2"},
+    )
+    assert bob_response.status_code == 200
+    bob_cookie = bob_response.cookies.get("ww_session")
+    assert bob_cookie
+    bob_headers = {"cookie": f"ww_session={bob_cookie}"}
+    bob_payload = bob_response.json()
+    assert bob_payload["user"]["subrouter"]["default_model"] == ""
+    assert bob_payload["user"]["writer_settings"] == {"temperature": 0.7, "max_tokens": 1800}
+    assert all(project["name"] != "Alice Book" for project in bob_payload["projects"])
+    assert all("path" not in project for project in bob_payload["projects"])
+
+    forbidden = client.post(
+        f"/api/projects/{alice_project_id}/activate",
+        headers=bob_headers,
+    )
+    assert forbidden.status_code == 404
+
+    alice_me = client.get("/api/auth/me", headers=alice_headers)
+    bob_me = client.get("/api/auth/me", headers=bob_headers)
+    assert alice_me.status_code == 200
+    assert bob_me.status_code == 200
+    assert {project["name"] for project in alice_me.json()["projects"]} != {project["name"] for project in bob_me.json()["projects"]}
+    assert alice_me.json()["user"]["writer_settings"] == {"temperature": 1.1, "max_tokens": 4096}
+    assert bob_me.json()["user"]["writer_settings"] == {"temperature": 0.7, "max_tokens": 1800}
+
+
+def test_platform_requires_login_for_project_data(monkeypatch, tmp_path):
+    client = _create_platform_dashboard_client(monkeypatch, tmp_path / "platform-data")
+
+    assert client.get("/api/auth/me").status_code == 401
+    assert client.get("/api/project/info").status_code == 401
+    assert client.get("/api/files/tree").status_code == 401
 
 
 def test_dashboard_chapter_trend_endpoint_returns_recent_window(monkeypatch, tmp_path):

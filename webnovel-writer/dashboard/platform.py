@@ -325,6 +325,8 @@ class PlatformStore:
                     subrouter_distributor_slug TEXT NOT NULL DEFAULT '',
                     subrouter_distributor_name TEXT NOT NULL DEFAULT '',
                     default_model TEXT NOT NULL DEFAULT '',
+                    writer_temperature REAL NOT NULL DEFAULT 0.7,
+                    writer_max_tokens INTEGER NOT NULL DEFAULT 1800,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -358,6 +360,9 @@ class PlatformStore:
                 "subrouter_distributor_id": "ALTER TABLE users ADD COLUMN subrouter_distributor_id TEXT NOT NULL DEFAULT ''",
                 "subrouter_distributor_slug": "ALTER TABLE users ADD COLUMN subrouter_distributor_slug TEXT NOT NULL DEFAULT ''",
                 "subrouter_distributor_name": "ALTER TABLE users ADD COLUMN subrouter_distributor_name TEXT NOT NULL DEFAULT ''",
+                "default_model": "ALTER TABLE users ADD COLUMN default_model TEXT NOT NULL DEFAULT ''",
+                "writer_temperature": "ALTER TABLE users ADD COLUMN writer_temperature REAL NOT NULL DEFAULT 0.7",
+                "writer_max_tokens": "ALTER TABLE users ADD COLUMN writer_max_tokens INTEGER NOT NULL DEFAULT 1800",
             }
             for column, sql in migrations.items():
                 if column not in columns:
@@ -367,8 +372,6 @@ class PlatformStore:
         return {
             "ok": True,
             "platform": platform_enabled(),
-            "data_dir": str(self.data_dir),
-            "db_path": str(self.db_path),
         }
 
     def register(
@@ -711,6 +714,10 @@ class PlatformStore:
                 "distributor_name": row.get("subrouter_distributor_name") or "",
                 "account_type": "dist" if row.get("subrouter_distributor_id") else "main",
             },
+            "writer_settings": {
+                "temperature": float(row.get("writer_temperature") if row.get("writer_temperature") is not None else 0.7),
+                "max_tokens": int(row.get("writer_max_tokens") or 1800),
+            },
             "created_at": row.get("created_at") or "",
             "updated_at": row.get("updated_at") or "",
         }
@@ -768,18 +775,38 @@ class PlatformStore:
         api_key: str | None = None,
         base_url: str | None = None,
         default_model: str | None = None,
+        temperature: Any = None,
+        max_tokens: Any = None,
     ) -> dict[str, Any]:
         fields: list[str] = []
         params: list[Any] = []
         if api_key is not None:
             fields.append("subrouter_api_key = ?")
-            params.append(api_key.strip())
+            params.append(str(api_key).strip())
         if base_url is not None:
             fields.append("subrouter_base_url = ?")
-            params.append(_normalize_base_url(base_url))
+            params.append(_normalize_base_url(str(base_url)))
         if default_model is not None:
             fields.append("default_model = ?")
-            params.append(default_model.strip())
+            params.append(str(default_model).strip())
+        if temperature is not None:
+            try:
+                temperature_value = float(temperature)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Temperature 必须是数字") from exc
+            if temperature_value < 0 or temperature_value > 2:
+                raise HTTPException(400, "Temperature 必须在 0 到 2 之间")
+            fields.append("writer_temperature = ?")
+            params.append(temperature_value)
+        if max_tokens is not None:
+            try:
+                max_tokens_value = int(max_tokens)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(400, "Max Tokens 必须是整数") from exc
+            if max_tokens_value < 256 or max_tokens_value > 20000:
+                raise HTTPException(400, "Max Tokens 必须在 256 到 20000 之间")
+            fields.append("writer_max_tokens = ?")
+            params.append(max_tokens_value)
         if not fields:
             return self.get_user(user_id)
         fields.append("updated_at = ?")
@@ -819,8 +846,11 @@ class PlatformStore:
     def current_project_root(self, user_id: str) -> Path:
         project = self._current_project_row(user_id)
         if project is None:
-            project = self.ensure_default_project(user_id)
-        path = Path(project["path"]).resolve()
+            self.ensure_default_project(user_id)
+            project = self._current_project_row(user_id)
+        if project is None:
+            raise HTTPException(500, "当前项目初始化失败")
+        path = self._validated_project_path(user_id, str(project["path"]))
         path.mkdir(parents=True, exist_ok=True)
         self._ensure_minimal_project(path, project["name"])
         return path
@@ -888,11 +918,19 @@ class PlatformStore:
             "id": row["id"],
             "name": row["name"],
             "slug": row["slug"],
-            "path": row["path"],
             "is_active": bool(row["is_active"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    def _validated_project_path(self, user_id: str, raw_path: str) -> Path:
+        path = Path(raw_path).resolve()
+        user_root = (self.projects_dir / user_id).resolve()
+        try:
+            path.relative_to(user_root)
+        except ValueError as exc:
+            raise HTTPException(500, "项目路径不属于当前用户") from exc
+        return path
 
     def _ensure_minimal_project(self, path: Path, title: str, genre: str = "") -> None:
         path.mkdir(parents=True, exist_ok=True)
@@ -1021,7 +1059,10 @@ class PlatformStore:
 
     def copy_project_from_upload(self, user_id: str, source: Path, name: str) -> dict[str, Any]:
         project = self.create_project(user_id, name=name)
-        target = Path(project["path"])
+        row = self._current_project_row(user_id)
+        if row is None or row["id"] != project["id"]:
+            raise HTTPException(500, "导入项目初始化失败")
+        target = self._validated_project_path(user_id, str(row["path"]))
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target)

@@ -26,6 +26,7 @@ from .platform import (
     get_store,
     platform_enabled,
     request_project_root,
+    request_user_id,
     require_user_id,
 )
 from .watcher import FileWatcher
@@ -298,14 +299,21 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=LOCAL_CORS_ORIGINS,
+        allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
     @app.middleware("http")
     async def platform_context_middleware(request: Request, call_next):
-        await attach_platform_context(request)
-        return await call_next(request)
+        user_token = request_user_id.set(None)
+        project_token = request_project_root.set(None)
+        try:
+            await attach_platform_context(request)
+            return await call_next(request)
+        finally:
+            request_project_root.reset(project_token)
+            request_user_id.reset(user_token)
 
     # ===========================================================
     # API：在线平台 / SubRouter 账户
@@ -382,6 +390,8 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             user_id,
             api_key=payload.get("api_key") if "api_key" in payload else payload.get("apiKey"),
             default_model=payload.get("default_model") if "default_model" in payload else payload.get("defaultModel"),
+            temperature=payload.get("temperature"),
+            max_tokens=payload.get("max_tokens") if "max_tokens" in payload else payload.get("maxTokens"),
         )
         return {"user": user}
 
@@ -1001,6 +1011,8 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
     @app.get("/api/events")
     async def sse():
         """Server-Sent Events 端点，推送 .webnovel/.story-system 的文件变更。"""
+        if platform_enabled():
+            require_user_id()
         q = _watcher.subscribe()
 
         async def _gen():

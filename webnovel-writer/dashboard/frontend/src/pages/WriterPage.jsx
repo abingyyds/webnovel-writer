@@ -15,8 +15,8 @@ export default function WriterPage() {
     const [model, setModel] = useState(auth?.user?.subrouter?.default_model || '')
     const [apiKey, setApiKey] = useState('')
     const [prompt, setPrompt] = useState('')
-    const [temperature, setTemperature] = useState(0.7)
-    const [maxTokens, setMaxTokens] = useState(1800)
+    const [temperature, setTemperature] = useState(auth?.user?.writer_settings?.temperature ?? 0.7)
+    const [maxTokens, setMaxTokens] = useState(auth?.user?.writer_settings?.max_tokens ?? 1800)
     const [output, setOutput] = useState('')
     const [loadingModels, setLoadingModels] = useState(false)
     const [generating, setGenerating] = useState(false)
@@ -25,6 +25,12 @@ export default function WriterPage() {
 
     const configured = Boolean(auth?.user?.subrouter?.configured)
     const distributorName = auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug || ''
+
+    useEffect(() => {
+        setModel(auth?.user?.subrouter?.default_model || '')
+        setTemperature(auth?.user?.writer_settings?.temperature ?? 0.7)
+        setMaxTokens(auth?.user?.writer_settings?.max_tokens ?? 1800)
+    }, [auth?.user?.id])
 
     useEffect(() => {
         if (!configured) return
@@ -66,6 +72,8 @@ export default function WriterPage() {
             const payload = await saveSubrouterSettings({
                 ...(apiKey.trim() ? { apiKey } : {}),
                 defaultModel: model,
+                temperature: Number(temperature),
+                maxTokens: Number(maxTokens),
             })
             setAuth(current => ({ ...current, user: payload.user }))
             setApiKey('')
