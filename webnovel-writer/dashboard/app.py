@@ -23,7 +23,6 @@ from fastapi.staticfiles import StaticFiles
 from .path_guard import safe_resolve
 from .platform import (
     attach_platform_context,
-    default_subrouter_base_url,
     get_store,
     platform_enabled,
     request_project_root,
@@ -314,10 +313,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
 
     @app.get("/api/platform/status")
     def platform_status():
-        return {
-            **get_store().health(),
-            "default_subrouter_base_url": default_subrouter_base_url(),
-        }
+        return get_store().health()
 
     @app.post("/api/auth/register")
     def auth_register(response: Response, payload: dict = Body(default={})):
@@ -326,7 +322,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             password=str(payload.get("password") or ""),
             email=str(payload.get("email") or ""),
             subrouter_api_key=str(payload.get("subrouter_api_key") or payload.get("subrouterApiKey") or ""),
-            subrouter_base_url=str(payload.get("subrouter_base_url") or payload.get("subrouterBaseUrl") or ""),
+            subrouter_base_url=None,
         )
         token = get_store().create_session(user["id"])
         get_store().set_session_cookie(response, token)
@@ -347,7 +343,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         user = await get_store().subrouter_password_login(
             username=str(payload.get("username") or ""),
             password=str(payload.get("password") or ""),
-            base_url=str(payload.get("base_url") or payload.get("baseUrl") or ""),
+            base_url=None,
         )
         token = get_store().create_session(user["id"])
         get_store().set_session_cookie(response, token)
@@ -357,7 +353,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
     def auth_subrouter_key_login(response: Response, payload: dict = Body(default={})):
         user = get_store().subrouter_login(
             api_key=str(payload.get("api_key") or payload.get("apiKey") or ""),
-            base_url=str(payload.get("base_url") or payload.get("baseUrl") or ""),
+            base_url=None,
             display_name=str(payload.get("display_name") or payload.get("displayName") or ""),
         )
         token = get_store().create_session(user["id"])
@@ -385,7 +381,6 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         user = get_store().update_subrouter_settings(
             user_id,
             api_key=payload.get("api_key") if "api_key" in payload else payload.get("apiKey"),
-            base_url=payload.get("base_url") if "base_url" in payload else payload.get("baseUrl"),
             default_model=payload.get("default_model") if "default_model" in payload else payload.get("defaultModel"),
         )
         return {"user": user}

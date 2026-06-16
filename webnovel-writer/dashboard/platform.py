@@ -704,8 +704,6 @@ class PlatformStore:
                 "configured": bool(api_key.strip()),
                 "key_preview": _token_preview(api_key) if api_key else "",
                 "provider": row.get("subrouter_provider") or "subrouterai",
-                "base_url": row.get("subrouter_base_url") or default_subrouter_base_url(),
-                "gateway_base_url": _gateway_base_url(row.get("subrouter_base_url") or default_subrouter_base_url()),
                 "default_model": row.get("default_model") or "",
                 "external_user_id": row.get("subrouter_external_user_id") or "",
                 "distributor_id": row.get("subrouter_distributor_id") or "",
@@ -967,7 +965,7 @@ class PlatformStore:
         models = await self._fetch_gateway_models(api_key, base_url)
         if not default_model:
             default_model = _pick_default_model(models)
-        return {"models": models, "default_model": default_model, "base_url": base_url}
+        return {"models": models, "default_model": default_model}
 
     async def _fetch_gateway_models(self, api_key: str, base_url: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=30) as client:

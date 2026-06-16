@@ -271,23 +271,6 @@ pre {
   font-weight: 600;
 }
 
-.auth-endpoint {
-  display: grid;
-  gap: 6px;
-  border: 2px solid var(--border-soft);
-  background: #fffef8;
-  padding: 12px;
-}
-
-.auth-endpoint span {
-  color: var(--text-mute);
-  font-weight: 700;
-}
-
-.auth-endpoint code {
-  word-break: break-all;
-}
-
 .auth-card,
 .settings-form {
   display: grid;

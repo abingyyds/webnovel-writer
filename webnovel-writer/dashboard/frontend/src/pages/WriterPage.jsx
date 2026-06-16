@@ -13,7 +13,6 @@ export default function WriterPage() {
     const { auth, setAuth, refreshToken } = useDashboardContext()
     const [models, setModels] = useState([])
     const [model, setModel] = useState(auth?.user?.subrouter?.default_model || '')
-    const [baseUrl, setBaseUrl] = useState(auth?.user?.subrouter?.base_url || '')
     const [apiKey, setApiKey] = useState('')
     const [prompt, setPrompt] = useState('')
     const [temperature, setTemperature] = useState(0.7)
@@ -25,6 +24,7 @@ export default function WriterPage() {
     const [error, setError] = useState('')
 
     const configured = Boolean(auth?.user?.subrouter?.configured)
+    const distributorName = auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug || ''
 
     useEffect(() => {
         if (!configured) return
@@ -65,7 +65,6 @@ export default function WriterPage() {
         try {
             const payload = await saveSubrouterSettings({
                 ...(apiKey.trim() ? { apiKey } : {}),
-                baseUrl,
                 defaultModel: model,
             })
             setAuth(current => ({ ...current, user: payload.user }))
@@ -109,12 +108,10 @@ export default function WriterPage() {
             <header className="page-header">
                 <h2>创作台</h2>
                 <div className="header-badges">
-                    <Badge tone={configured ? 'green' : 'amber'}>
-                        {configured ? 'SubRouter 已连接' : '需要配置 SubRouter'}
-                    </Badge>
-                    {auth?.user?.subrouter?.account_type ? (
+                    {!configured ? <Badge tone="amber">需要登录</Badge> : null}
+                    {distributorName ? (
                         <Badge tone="purple">
-                            {auth.user.subrouter.account_type === 'dist' ? '分站账号' : '主站账号'}
+                            {distributorName}
                         </Badge>
                     ) : null}
                     {model ? <Badge tone="blue">{model}</Badge> : null}
@@ -183,11 +180,7 @@ export default function WriterPage() {
                         <div className="detail-divider" />
                         <div className="mini-label">ACCOUNT</div>
                         <div className="selected-path">
-                            {auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug
-                                ? `分站：${auth.user.subrouter.distributor_name || auth.user.subrouter.distributor_slug}`
-                                : 'SubRouter 主站账号'}
-                            <br />
-                            网关：{auth?.user?.subrouter?.gateway_base_url || baseUrl}
+                            {distributorName || '当前账号'}
                         </div>
                         <label className="form-field">
                             <span>手动 API Key 覆盖</span>
@@ -196,14 +189,6 @@ export default function WriterPage() {
                                 value={apiKey}
                                 onChange={event => setApiKey(event.target.value)}
                                 placeholder={auth?.user?.subrouter?.key_preview || '通常无需填写'}
-                            />
-                        </label>
-                        <label className="form-field">
-                            <span>SubRouter 管理地址</span>
-                            <input
-                                value={baseUrl}
-                                onChange={event => setBaseUrl(event.target.value)}
-                                placeholder="http://subrouter.railway.internal:8080"
                             />
                         </label>
                         <button type="submit" className="page-btn" disabled={saving}>

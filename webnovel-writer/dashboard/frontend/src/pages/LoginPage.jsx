@@ -1,6 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import {
-    fetchPlatformStatus,
     loginUser,
     loginWithSubrouter,
     registerUser,
@@ -8,23 +7,13 @@ import {
 
 export default function LoginPage({ onSignedIn }) {
     const [mode, setMode] = useState('subrouter')
-    const [status, setStatus] = useState(null)
     const [form, setForm] = useState({
         username: '',
         password: '',
         email: '',
-        baseUrl: '',
     })
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
-
-    useEffect(() => {
-        fetchPlatformStatus()
-            .then(setStatus)
-            .catch(() => setStatus(null))
-    }, [])
-
-    const defaultBaseUrl = status?.default_subrouter_base_url || 'http://subrouter.railway.internal:8080'
 
     function updateField(key, value) {
         setForm(current => ({ ...current, [key]: value }))
@@ -40,14 +29,12 @@ export default function LoginPage({ onSignedIn }) {
                 payload = await loginWithSubrouter({
                     username: form.username,
                     password: form.password,
-                    baseUrl: form.baseUrl || defaultBaseUrl,
                 })
             } else if (mode === 'register') {
                 payload = await registerUser({
                     username: form.username,
                     password: form.password,
                     email: form.email,
-                    subrouterBaseUrl: form.baseUrl || defaultBaseUrl,
                 })
             } else {
                 payload = await loginUser({
@@ -70,10 +57,6 @@ export default function LoginPage({ onSignedIn }) {
                     <div className="section-label">WEBNOVEL PLATFORM</div>
                     <h1>Webnovel Writer</h1>
                     <p>使用 SubRouter 主站或分站账号密码登录。后端会复用 SubRouter 原有会话，自动准备调用密钥，模型列表和生成请求都从后端代理。</p>
-                    <div className="auth-endpoint">
-                        <span>SubRouter 管理地址</span>
-                        <code>{defaultBaseUrl}</code>
-                    </div>
                 </div>
 
                 <form className="auth-card" onSubmit={submit}>
@@ -108,14 +91,6 @@ export default function LoginPage({ onSignedIn }) {
                                     onChange={event => updateField('password', event.target.value)}
                                 />
                             </label>
-                            <label className="form-field">
-                                <span>SubRouter 管理地址</span>
-                                <input
-                                    value={form.baseUrl}
-                                    onChange={event => updateField('baseUrl', event.target.value)}
-                                    placeholder={defaultBaseUrl}
-                                />
-                            </label>
                         </>
                     ) : (
                         <>
@@ -137,25 +112,15 @@ export default function LoginPage({ onSignedIn }) {
                                 />
                             </label>
                             {mode === 'register' ? (
-                                <>
-                                    <label className="form-field">
-                                        <span>邮箱</span>
-                                        <input
-                                            type="email"
-                                            value={form.email}
-                                            onChange={event => updateField('email', event.target.value)}
-                                            placeholder="可选"
-                                        />
-                                    </label>
-                                    <label className="form-field">
-                                        <span>SubRouter 管理地址</span>
-                                        <input
-                                            value={form.baseUrl}
-                                            onChange={event => updateField('baseUrl', event.target.value)}
-                                            placeholder={defaultBaseUrl}
-                                        />
-                                    </label>
-                                </>
+                                <label className="form-field">
+                                    <span>邮箱</span>
+                                    <input
+                                        type="email"
+                                        value={form.email}
+                                        onChange={event => updateField('email', event.target.value)}
+                                        placeholder="可选"
+                                    />
+                                </label>
                             ) : null}
                         </>
                     )}
