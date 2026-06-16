@@ -26,7 +26,6 @@ COPY webnovel-writer ./webnovel-writer
 COPY --from=frontend /app/webnovel-writer/dashboard/frontend/dist ./webnovel-writer/dashboard/frontend/dist
 
 RUN mkdir -p /data
-VOLUME ["/data"]
 
 EXPOSE 8765
 
