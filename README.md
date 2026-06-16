@@ -33,6 +33,8 @@ SUBROUTER_BASE_URL=http://subrouter.railway.internal:8080
 
 `SUBROUTER_BASE_URL` 是 SubRouter 管理/API 服务地址，不需要手动加 `/v1`；本平台在模型列表和生成请求时会自动调用 `${SUBROUTER_BASE_URL}/v1/...`。
 
+Railway 会自动注入 `PORT` 并把公网流量转到该端口，不要在 Railway Variables 里手动设置 `PORT=8765`。本镜像启动时会监听 `0.0.0.0:${PORT}`。
+
 如果不走 Railway 私网，也可以使用公网地址：
 
 ```bash

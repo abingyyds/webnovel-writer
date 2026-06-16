@@ -12,8 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/webnovel-writer \
     WEBNOVEL_PLATFORM_ENABLED=true \
     WEBNOVEL_DATA_DIR=/data \
-    HOST=0.0.0.0 \
-    PORT=8765
+    HOST=0.0.0.0
 
 WORKDIR /app
 
@@ -27,6 +26,4 @@ COPY --from=frontend /app/webnovel-writer/dashboard/frontend/dist ./webnovel-wri
 
 RUN mkdir -p /data
 
-EXPOSE 8765
-
-CMD ["python", "-m", "dashboard.server", "--no-browser"]
+CMD ["sh", "-c", "python -m dashboard.server --host 0.0.0.0 --port ${PORT:-8765} --no-browser"]
