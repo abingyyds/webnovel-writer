@@ -56,20 +56,16 @@ export function registerUser(payload) {
     return sendJSON('/api/auth/register', payload)
 }
 
-export function loginWithSubrouter(payload) {
-    return sendJSON('/api/auth/subrouter-login', payload)
-}
-
-export function loginWithSubrouterKey(payload) {
-    return sendJSON('/api/auth/subrouter-key-login', payload)
+export function loginWithModelGateway(payload) {
+    return sendJSON('/api/auth/model-login', payload)
 }
 
 export function logoutUser() {
     return sendJSON('/api/auth/logout')
 }
 
-export function saveSubrouterSettings(payload) {
-    return sendJSON('/api/user/subrouter', payload, { method: 'PUT' })
+export function saveModelGatewaySettings(payload) {
+    return sendJSON('/api/user/model-gateway', payload, { method: 'PUT' })
 }
 
 export function fetchProjects() {
@@ -84,12 +80,12 @@ export function activateProject(projectId) {
     return sendJSON(`/api/projects/${encodeURIComponent(projectId)}/activate`)
 }
 
-export function fetchSubrouterModels() {
-    return fetchJSON('/api/subrouter/models')
+export function fetchModelGatewayModels() {
+    return fetchJSON('/api/model-gateway/models')
 }
 
-export function sendSubrouterChat(payload) {
-    return sendJSON('/api/subrouter/chat', payload)
+export function sendModelGatewayChat(payload) {
+    return sendJSON('/api/model-gateway/chat', payload)
 }
 
 export function fetchProjectInfo() {

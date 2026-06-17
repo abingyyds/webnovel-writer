@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import {
     loginUser,
-    loginWithSubrouter,
+    loginWithModelGateway,
     registerUser,
 } from '../api.js'
 
 export default function LoginPage({ onSignedIn }) {
-    const [mode, setMode] = useState('subrouter')
+    const [mode, setMode] = useState('model')
     const [form, setForm] = useState({
         username: '',
         password: '',
@@ -25,8 +25,8 @@ export default function LoginPage({ onSignedIn }) {
         setError('')
         try {
             let payload
-            if (mode === 'subrouter') {
-                payload = await loginWithSubrouter({
+            if (mode === 'model') {
+                payload = await loginWithModelGateway({
                     username: form.username,
                     password: form.password,
                 })
@@ -56,13 +56,13 @@ export default function LoginPage({ onSignedIn }) {
                 <div className="auth-copy">
                     <div className="section-label">WEBNOVEL PLATFORM</div>
                     <h1>Webnovel Writer</h1>
-                    <p>使用 SubRouter 主站或分站账号密码登录。后端会复用 SubRouter 原有会话，自动准备调用密钥，模型列表和生成请求都从后端代理。</p>
+                    <p>使用模型账号登录。后端会自动准备调用密钥，模型列表和生成请求都从后端代理。</p>
                 </div>
 
                 <form className="auth-card" onSubmit={submit}>
                     <div className="segmented-control">
-                        <button type="button" className={mode === 'subrouter' ? 'active' : ''} onClick={() => setMode('subrouter')}>
-                            SubRouter
+                        <button type="button" className={mode === 'model' ? 'active' : ''} onClick={() => setMode('model')}>
+                            模型账号
                         </button>
                         <button type="button" className={mode === 'login' ? 'active' : ''} onClick={() => setMode('login')}>
                             登录
@@ -72,7 +72,7 @@ export default function LoginPage({ onSignedIn }) {
                         </button>
                     </div>
 
-                    {mode === 'subrouter' ? (
+                    {mode === 'model' ? (
                         <>
                             <label className="form-field">
                                 <span>用户名</span>

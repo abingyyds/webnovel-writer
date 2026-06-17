@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useDashboardContext } from '../App.jsx'
 import {
-    fetchSubrouterModels,
-    saveSubrouterSettings,
-    sendSubrouterChat,
+    fetchModelGatewayModels,
+    saveModelGatewaySettings,
+    sendModelGatewayChat,
 } from '../api.js'
 import Badge from '../components/Badge.jsx'
 
@@ -11,8 +11,9 @@ const SYSTEM_PROMPT = `你是严谨的中文长篇网文创作助手。输出要
 
 export default function WriterPage() {
     const { auth, setAuth, refreshToken } = useDashboardContext()
+    const gateway = auth?.user?.model_gateway || {}
     const [models, setModels] = useState([])
-    const [model, setModel] = useState(auth?.user?.subrouter?.default_model || '')
+    const [model, setModel] = useState(gateway.default_model || '')
     const [apiKey, setApiKey] = useState('')
     const [prompt, setPrompt] = useState('')
     const [temperature, setTemperature] = useState(auth?.user?.writer_settings?.temperature ?? 0.7)
@@ -23,11 +24,11 @@ export default function WriterPage() {
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
 
-    const configured = Boolean(auth?.user?.subrouter?.configured)
-    const distributorName = auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug || ''
+    const configured = Boolean(gateway.configured)
+    const accountLabel = gateway.account_label || ''
 
     useEffect(() => {
-        setModel(auth?.user?.subrouter?.default_model || '')
+        setModel(auth?.user?.model_gateway?.default_model || '')
         setTemperature(auth?.user?.writer_settings?.temperature ?? 0.7)
         setMaxTokens(auth?.user?.writer_settings?.max_tokens ?? 1800)
     }, [auth?.user?.id])
@@ -37,7 +38,7 @@ export default function WriterPage() {
         let cancelled = false
         setLoadingModels(true)
         setError('')
-        fetchSubrouterModels()
+        fetchModelGatewayModels()
             .then(payload => {
                 if (cancelled) return
                 const nextModels = payload.models || []
@@ -69,7 +70,7 @@ export default function WriterPage() {
         setSaving(true)
         setError('')
         try {
-            const payload = await saveSubrouterSettings({
+            const payload = await saveModelGatewaySettings({
                 ...(apiKey.trim() ? { apiKey } : {}),
                 defaultModel: model,
                 temperature: Number(temperature),
@@ -93,7 +94,7 @@ export default function WriterPage() {
         setError('')
         setOutput('')
         try {
-            const payload = await sendSubrouterChat({
+            const payload = await sendModelGatewayChat({
                 model,
                 temperature: Number(temperature),
                 max_tokens: Number(maxTokens),
@@ -117,9 +118,9 @@ export default function WriterPage() {
                 <h2>创作台</h2>
                 <div className="header-badges">
                     {!configured ? <Badge tone="amber">需要登录</Badge> : null}
-                    {distributorName ? (
+                    {accountLabel ? (
                         <Badge tone="purple">
-                            {distributorName}
+                            {accountLabel}
                         </Badge>
                     ) : null}
                     {model ? <Badge tone="blue">{model}</Badge> : null}
@@ -151,7 +152,7 @@ export default function WriterPage() {
 
                 <aside className="card writer-settings">
                     <div className="section-label">MODEL</div>
-                    <div className="card-title">SubRouter 模型</div>
+                    <div className="card-title">模型路由</div>
                     <label className="form-field">
                         <span>模型</span>
                         <select value={model} onChange={event => setModel(event.target.value)} disabled={loadingModels}>
@@ -188,7 +189,7 @@ export default function WriterPage() {
                         <div className="detail-divider" />
                         <div className="mini-label">ACCOUNT</div>
                         <div className="selected-path">
-                            {distributorName || '当前账号'}
+                            {accountLabel || '当前账号'}
                         </div>
                         <label className="form-field">
                             <span>手动 API Key 覆盖</span>
@@ -196,7 +197,7 @@ export default function WriterPage() {
                                 type="password"
                                 value={apiKey}
                                 onChange={event => setApiKey(event.target.value)}
-                                placeholder={auth?.user?.subrouter?.key_preview || '通常无需填写'}
+                                placeholder={gateway.key_preview || '通常无需填写'}
                             />
                         </label>
                         <button type="submit" className="page-btn" disabled={saving}>

@@ -2,8 +2,7 @@
 
 The original dashboard is a local, read-only view over one project root. This
 module adds the small amount of state needed to run it as a hosted app:
-accounts, sessions, per-user project roots, and SubRouter-compatible model
-access.
+accounts, sessions, per-user project roots, and model gateway access.
 """
 
 from __future__ import annotations
@@ -86,6 +85,13 @@ def _slugify(value: str, fallback: str) -> str:
     return text or fallback
 
 
+def _public_error_text(value: Any, fallback: str) -> str:
+    text = str(value or fallback)
+    text = re.sub(r"SubRouter", "模型服务", text, flags=re.I)
+    text = re.sub(r"subrouter", "model-gateway", text, flags=re.I)
+    return text or fallback
+
+
 def _normalize_base_url(value: str | None) -> str:
     raw = (value or default_subrouter_base_url()).strip().rstrip("/")
     if not raw:
@@ -99,7 +105,8 @@ def _normalize_base_url(value: str | None) -> str:
 
 def default_subrouter_base_url() -> str:
     return (
-        os.environ.get("SUBROUTER_BASE_URL")
+        os.environ.get("MODEL_GATEWAY_BASE_URL")
+        or os.environ.get("SUBROUTER_BASE_URL")
         or os.environ.get("SUBROUTERAI_BASE_URL")
         or os.environ.get("TOONFLOW_SUBROUTER_BASE_URL")
         or DEFAULT_SUBROUTER_BASE_URL
@@ -119,9 +126,11 @@ def _parse_base_url_candidates(value: str | None) -> list[str]:
 
 def default_login_base_url_candidates() -> list[str]:
     candidates = [
+        os.environ.get("MODEL_GATEWAY_BASE_URL"),
         os.environ.get("SUBROUTER_BASE_URL"),
         os.environ.get("SUBROUTERAI_BASE_URL"),
         os.environ.get("TOONFLOW_SUBROUTER_BASE_URL"),
+        *_parse_base_url_candidates(os.environ.get("MODEL_GATEWAY_BASE_URL_CANDIDATES")),
         *_parse_base_url_candidates(os.environ.get("SUBROUTER_BASE_URL_CANDIDATES")),
         *_parse_base_url_candidates(os.environ.get("TOONFLOW_SUBROUTER_BASE_URL_CANDIDATES")),
         DEFAULT_SUBROUTER_BASE_URL,
@@ -144,6 +153,15 @@ def _token_preview(token: str) -> str:
     if len(token) <= 12:
         return "configured"
     return f"{token[:6]}...{token[-4:]}"
+
+
+def _public_username(row: dict[str, Any]) -> str:
+    username = str(row.get("username") or "")
+    if username.startswith("subrouter:"):
+        return username.split(":", 1)[1] or "模型账号"
+    if username.startswith("subrouter-"):
+        return "模型账号"
+    return username
 
 
 def _extract_items(payload: Any) -> list[Any]:
@@ -193,7 +211,7 @@ def _extract_distributor(payload: Any) -> dict[str, Any] | None:
         return None
     slug = str(raw.get("slug") or body.get("distributor_slug") or body.get("distributorSlug") or "").strip()
     if not dist_id or not slug:
-        raise HTTPException(400, "用户属于分站，但 SubRouter 未返回分站 slug")
+        raise HTTPException(400, "账号分站信息不完整")
     return {
         "id": str(dist_id),
         "slug": slug,
@@ -420,7 +438,7 @@ class PlatformStore:
     def subrouter_login(self, *, api_key: str, base_url: str | None = None, display_name: str = "") -> dict[str, Any]:
         api_key = api_key.strip()
         if not api_key:
-            raise HTTPException(400, "SubRouter API Key 不能为空")
+            raise HTTPException(400, "模型访问密钥不能为空")
         fingerprint = hashlib.sha256(api_key.encode("utf-8")).hexdigest()
         user_id = "sr_" + fingerprint[:24]
         username = _slugify(display_name, f"subrouter-{fingerprint[:8]}")
@@ -465,7 +483,7 @@ class PlatformStore:
         username = username.strip()
         password = password.strip()
         if not username or not password:
-            raise HTTPException(400, "SubRouter 用户名和密码不能为空")
+            raise HTTPException(400, "用户名和密码不能为空")
 
         candidates = []
         if base_url and base_url.strip():
@@ -473,7 +491,7 @@ class PlatformStore:
         candidates.extend(default_login_base_url_candidates())
 
         seen = set()
-        last_error = "SubRouter 登录失败"
+        last_error = "登录失败"
         async with httpx.AsyncClient(timeout=20, follow_redirects=False) as client:
             for candidate in candidates:
                 if candidate in seen:
@@ -486,7 +504,7 @@ class PlatformStore:
                     last_error = str(exc.detail)
                 except Exception as exc:
                     last_error = str(exc)
-        raise HTTPException(401, last_error or "SubRouter 用户名或密码错误")
+        raise HTTPException(401, last_error or "用户名或密码错误")
 
     async def _login_subrouterai(
         self,
@@ -500,13 +518,13 @@ class PlatformStore:
             json={"username": username, "password": password},
         )
         if response.status_code >= 400:
-            raise HTTPException(response.status_code, _upstream_error(response, "SubRouter 登录失败"))
+            raise HTTPException(response.status_code, _upstream_error(response, "登录失败"))
         payload = response.json()
         if isinstance(payload, dict) and payload.get("success") is False:
-            raise HTTPException(401, str(payload.get("message") or "SubRouter 用户名或密码错误"))
+            raise HTTPException(401, str(payload.get("message") or "用户名或密码错误"))
         cookie = _build_cookie(response.headers)
         if not cookie:
-            raise HTTPException(502, "SubRouter 登录成功但未返回会话 Cookie")
+            raise HTTPException(502, "登录成功但未返回会话凭据")
         user = _extract_user(payload)
         external_id = str(user.get("id") or "").strip()
         distributor = _extract_distributor(payload)
@@ -644,17 +662,17 @@ class PlatformStore:
             }
         response = await client.post(f"{login['base_url']}{path}", headers=headers, json=body)
         if response.status_code >= 400:
-            raise HTTPException(response.status_code, _upstream_error(response, "创建 SubRouter 访问密钥失败"))
+            raise HTTPException(response.status_code, _upstream_error(response, "创建模型访问密钥失败"))
         payload = response.json()
         if isinstance(payload, dict) and payload.get("success") is False:
-            raise HTTPException(400, str(payload.get("message") or "创建 SubRouter 访问密钥失败"))
+            raise HTTPException(400, str(payload.get("message") or "创建模型访问密钥失败"))
         key = _extract_key(payload)
         if key[0]:
             return key
 
         created = _find_reusable_key(await self._list_subrouterai_keys(client, login), exact_name=name)
         if not created:
-            raise HTTPException(502, "SubRouter 密钥已创建但未能从列表读取")
+            raise HTTPException(502, "模型访问密钥已创建但未能从列表读取")
         return created
 
     async def _list_subrouterai_keys(
@@ -677,10 +695,10 @@ class PlatformStore:
         else:
             response = await client.get(f"{login['base_url']}/api/token/", headers=headers)
         if response.status_code >= 400:
-            raise HTTPException(response.status_code, _upstream_error(response, "获取 SubRouter 密钥列表失败"))
+            raise HTTPException(response.status_code, _upstream_error(response, "获取模型访问密钥列表失败"))
         payload = response.json()
         if isinstance(payload, dict) and payload.get("success") is False:
-            raise HTTPException(400, str(payload.get("message") or "获取 SubRouter 密钥列表失败"))
+            raise HTTPException(400, str(payload.get("message") or "获取模型访问密钥列表失败"))
         return _extract_items(payload)
 
     def login(self, *, username: str, password: str) -> dict[str, Any]:
@@ -699,21 +717,18 @@ class PlatformStore:
 
     def _public_user(self, row: dict[str, Any]) -> dict[str, Any]:
         api_key = row.get("subrouter_api_key") or ""
+        gateway = {
+            "configured": bool(api_key.strip()),
+            "key_preview": _token_preview(api_key) if api_key else "",
+            "default_model": row.get("default_model") or "",
+            "account_label": row.get("subrouter_distributor_name") or row.get("subrouter_distributor_slug") or "",
+            "account_type": "dist" if row.get("subrouter_distributor_id") else "main",
+        }
         return {
             "id": row["id"],
-            "username": row["username"],
+            "username": _public_username(row),
             "email": row.get("email") or "",
-            "subrouter": {
-                "configured": bool(api_key.strip()),
-                "key_preview": _token_preview(api_key) if api_key else "",
-                "provider": row.get("subrouter_provider") or "subrouterai",
-                "default_model": row.get("default_model") or "",
-                "external_user_id": row.get("subrouter_external_user_id") or "",
-                "distributor_id": row.get("subrouter_distributor_id") or "",
-                "distributor_slug": row.get("subrouter_distributor_slug") or "",
-                "distributor_name": row.get("subrouter_distributor_name") or "",
-                "account_type": "dist" if row.get("subrouter_distributor_id") else "main",
-            },
+            "model_gateway": gateway,
             "writer_settings": {
                 "temperature": float(row.get("writer_temperature") if row.get("writer_temperature") is not None else 0.7),
                 "max_tokens": int(row.get("writer_max_tokens") or 1800),
@@ -826,7 +841,7 @@ class PlatformStore:
             raise HTTPException(401, "登录已过期")
         api_key = str(row["subrouter_api_key"] or "").strip()
         if not api_key:
-            raise HTTPException(400, "请先使用 SubRouter 账号密码登录，或配置 SubRouter API Key")
+            raise HTTPException(400, "请先登录模型账号，或配置模型访问密钥")
         return api_key, _gateway_base_url(row["subrouter_base_url"]), str(row["default_model"] or "")
 
     def list_projects(self, user_id: str) -> list[dict[str, Any]]:
@@ -1075,16 +1090,16 @@ def _upstream_error(response: httpx.Response, fallback: str) -> str:
     try:
         payload = response.json()
     except ValueError:
-        return text or fallback
+        return _public_error_text(text, fallback)
     if isinstance(payload, dict):
         error = payload.get("error")
         if isinstance(error, dict):
-            return str(error.get("message") or error.get("type") or fallback)
+            return _public_error_text(error.get("message") or error.get("type"), fallback)
         if isinstance(error, str):
-            return error
+            return _public_error_text(error, fallback)
         if payload.get("message"):
-            return str(payload["message"])
-    return text or fallback
+            return _public_error_text(payload["message"], fallback)
+    return _public_error_text(text, fallback)
 
 
 _store: PlatformStore | None = None

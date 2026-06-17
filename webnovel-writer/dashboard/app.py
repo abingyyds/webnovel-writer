@@ -316,7 +316,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             request_user_id.reset(user_token)
 
     # ===========================================================
-    # API：在线平台 / SubRouter 账户
+    # API：在线平台 / 模型账号
     # ===========================================================
 
     @app.get("/api/platform/status")
@@ -346,7 +346,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         get_store().set_session_cookie(response, token)
         return {"user": user, "projects": get_store().list_projects(user["id"])}
 
-    @app.post("/api/auth/subrouter-login")
+    @app.post("/api/auth/subrouter-login", include_in_schema=False)
     async def auth_subrouter_login(response: Response, payload: dict = Body(default={})):
         user = await get_store().subrouter_password_login(
             username=str(payload.get("username") or ""),
@@ -357,7 +357,11 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         get_store().set_session_cookie(response, token)
         return {"user": get_store().get_user(user["id"]), "projects": get_store().list_projects(user["id"])}
 
-    @app.post("/api/auth/subrouter-key-login")
+    @app.post("/api/auth/model-login")
+    async def auth_model_login(response: Response, payload: dict = Body(default={})):
+        return await auth_subrouter_login(response, payload)
+
+    @app.post("/api/auth/subrouter-key-login", include_in_schema=False)
     def auth_subrouter_key_login(response: Response, payload: dict = Body(default={})):
         user = get_store().subrouter_login(
             api_key=str(payload.get("api_key") or payload.get("apiKey") or ""),
@@ -383,7 +387,7 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             "current_project": get_store().current_project(user_id),
         }
 
-    @app.put("/api/user/subrouter")
+    @app.put("/api/user/subrouter", include_in_schema=False)
     def save_subrouter_settings(payload: dict = Body(default={})):
         user_id = require_user_id()
         user = get_store().update_subrouter_settings(
@@ -394,6 +398,10 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             max_tokens=payload.get("max_tokens") if "max_tokens" in payload else payload.get("maxTokens"),
         )
         return {"user": user}
+
+    @app.put("/api/user/model-gateway")
+    def save_model_gateway_settings(payload: dict = Body(default={})):
+        return save_subrouter_settings(payload)
 
     @app.get("/api/projects")
     def list_platform_projects():
@@ -419,13 +427,21 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
         project = get_store().activate_project(user_id, project_id)
         return {"project": project, "projects": get_store().list_projects(user_id)}
 
-    @app.get("/api/subrouter/models")
+    @app.get("/api/subrouter/models", include_in_schema=False)
     async def subrouter_models():
         return await get_store().fetch_models(require_user_id())
 
-    @app.post("/api/subrouter/chat")
+    @app.get("/api/model-gateway/models")
+    async def model_gateway_models():
+        return await subrouter_models()
+
+    @app.post("/api/subrouter/chat", include_in_schema=False)
     async def subrouter_chat(payload: dict = Body(default={})):
         return await get_store().chat_completion(require_user_id(), payload)
+
+    @app.post("/api/model-gateway/chat")
+    async def model_gateway_chat(payload: dict = Body(default={})):
+        return await subrouter_chat(payload)
 
     # ===========================================================
     # API：项目元信息

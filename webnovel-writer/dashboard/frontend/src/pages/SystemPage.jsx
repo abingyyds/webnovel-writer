@@ -6,10 +6,10 @@ import {
     fetchCommits,
     fetchContractsSummary,
     fetchEnvStatus,
-    fetchSubrouterModels,
+    fetchModelGatewayModels,
     fetchStoryRuntimeHealth,
     probeEnvStatus,
-    saveSubrouterSettings,
+    saveModelGatewaySettings,
 } from '../api.js'
 import { formatChapterLabel, formatDateTime, formatNumber } from '../lib/format.js'
 
@@ -46,6 +46,7 @@ function StatCard({ label, value, sub, tone = 'plain' }) {
 
 export default function SystemPage() {
     const { auth, setAuth, refreshToken } = useDashboardContext()
+    const gateway = auth?.user?.model_gateway || {}
     const [runtimeHealth, setRuntimeHealth] = useState(null)
     const [contractsSummary, setContractsSummary] = useState(null)
     const [commits, setCommits] = useState([])
@@ -53,7 +54,7 @@ export default function SystemPage() {
     const [probeResult, setProbeResult] = useState(null)
     const [probing, setProbing] = useState(false)
     const [models, setModels] = useState([])
-    const [selectedModel, setSelectedModel] = useState(auth?.user?.subrouter?.default_model || '')
+    const [selectedModel, setSelectedModel] = useState(gateway.default_model || '')
     const [customModel, setCustomModel] = useState('')
     const [modelRefreshToken, setModelRefreshToken] = useState(0)
     const [loadingModels, setLoadingModels] = useState(false)
@@ -61,9 +62,9 @@ export default function SystemPage() {
     const [modelError, setModelError] = useState('')
     const [modelSavedAt, setModelSavedAt] = useState('')
 
-    const configured = Boolean(auth?.user?.subrouter?.configured)
-    const defaultModel = auth?.user?.subrouter?.default_model || ''
-    const distributorName = auth?.user?.subrouter?.distributor_name || auth?.user?.subrouter?.distributor_slug || ''
+    const configured = Boolean(gateway.configured)
+    const defaultModel = gateway.default_model || ''
+    const accountLabel = gateway.account_label || ''
 
     useEffect(() => {
         setSelectedModel(defaultModel)
@@ -100,7 +101,7 @@ export default function SystemPage() {
         let cancelled = false
         setLoadingModels(true)
         setModelError('')
-        fetchSubrouterModels()
+        fetchModelGatewayModels()
             .then(payload => {
                 if (cancelled) return
                 const nextModels = payload.models || []
@@ -140,7 +141,7 @@ export default function SystemPage() {
                 ok: configured && Boolean(defaultModel || selectedModel),
                 detail: configured
                     ? `默认模型：${defaultModel || selectedModel || '未选择'}`
-                    : '需要先用 SubRouter 登录或配置 API Key',
+                    : '需要先登录模型账号或配置模型访问密钥',
                 action: '影响创作台生成调用',
                 required: true,
             },
@@ -271,9 +272,9 @@ export default function SystemPage() {
         setModelError('')
         setModelSavedAt('')
         try {
-            const payload = await saveSubrouterSettings({ defaultModel: nextModel })
+            const payload = await saveModelGatewaySettings({ defaultModel: nextModel })
             setAuth(current => ({ ...current, user: payload.user }))
-            setSelectedModel(payload.user?.subrouter?.default_model || nextModel)
+            setSelectedModel(payload.user?.model_gateway?.default_model || nextModel)
             setCustomModel('')
             setModelSavedAt(new Date().toISOString())
         } catch (err) {
@@ -344,7 +345,7 @@ export default function SystemPage() {
                         <div className="model-meta-grid">
                             <div>
                                 <span className="stat-label">账号</span>
-                                <strong>{distributorName || auth?.user?.username || '当前账号'}</strong>
+                                <strong>{accountLabel || auth?.user?.username || '当前账号'}</strong>
                             </div>
                             <div>
                                 <span className="stat-label">模型数</span>

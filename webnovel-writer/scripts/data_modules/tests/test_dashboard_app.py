@@ -400,15 +400,18 @@ def test_platform_accounts_keep_projects_and_settings_isolated(monkeypatch, tmp_
         else alice_payload["projects"][0]["id"]
     )
     assert "path" not in alice_payload["projects"][0]
+    assert "subrouter" not in alice_payload["user"]
+    assert alice_payload["user"]["model_gateway"]["default_model"] == ""
     assert alice_payload["user"]["writer_settings"] == {"temperature": 0.7, "max_tokens": 1800}
 
     alice_settings = client.put(
-        "/api/user/subrouter",
+        "/api/user/model-gateway",
         headers=alice_headers,
         json={"defaultModel": "alice-model", "temperature": 1.1, "maxTokens": 4096},
     )
     assert alice_settings.status_code == 200
-    assert alice_settings.json()["user"]["subrouter"]["default_model"] == "alice-model"
+    assert "subrouter" not in alice_settings.json()["user"]
+    assert alice_settings.json()["user"]["model_gateway"]["default_model"] == "alice-model"
     assert alice_settings.json()["user"]["writer_settings"] == {"temperature": 1.1, "max_tokens": 4096}
 
     alice_create = client.post(
@@ -428,7 +431,8 @@ def test_platform_accounts_keep_projects_and_settings_isolated(monkeypatch, tmp_
     assert bob_cookie
     bob_headers = {"cookie": f"ww_session={bob_cookie}"}
     bob_payload = bob_response.json()
-    assert bob_payload["user"]["subrouter"]["default_model"] == ""
+    assert "subrouter" not in bob_payload["user"]
+    assert bob_payload["user"]["model_gateway"]["default_model"] == ""
     assert bob_payload["user"]["writer_settings"] == {"temperature": 0.7, "max_tokens": 1800}
     assert all(project["name"] != "Alice Book" for project in bob_payload["projects"])
     assert all("path" not in project for project in bob_payload["projects"])
