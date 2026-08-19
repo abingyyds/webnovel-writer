@@ -11,6 +11,7 @@ export default function LoginPage({ onSignedIn }) {
         username: '',
         password: '',
         email: '',
+        twoFactorCode: '',
     })
     const [busy, setBusy] = useState(false)
     const [error, setError] = useState('')
@@ -29,6 +30,7 @@ export default function LoginPage({ onSignedIn }) {
                 payload = await loginWithModelGateway({
                     username: form.username,
                     password: form.password,
+                    twoFactorCode: form.twoFactorCode,
                 })
             } else if (mode === 'register') {
                 payload = await registerUser({
@@ -81,6 +83,10 @@ export default function LoginPage({ onSignedIn }) {
                                     value={form.username}
                                     onChange={event => updateField('username', event.target.value)}
                                 />
+                            </label>
+                            <label className="form-field">
+                                <span>SubRouter 双重验证码（如已启用）</span>
+                                <input autoComplete="one-time-code" inputMode="numeric" value={form.twoFactorCode} onChange={event => updateField('twoFactorCode', event.target.value)} placeholder="可选" />
                             </label>
                             <label className="form-field">
                                 <span>密码</span>

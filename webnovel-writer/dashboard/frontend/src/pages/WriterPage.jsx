@@ -154,7 +154,7 @@ export default function WriterPage() {
                     <div className="section-label">MODEL</div>
                     <div className="card-title">模型路由</div>
                     <label className="form-field">
-                        <span>模型</span>
+                        <span>选择 SubRouter 模型</span>
                         <select value={model} onChange={event => setModel(event.target.value)} disabled={loadingModels}>
                             <option value="">{loadingModels ? '读取中...' : '请选择模型'}</option>
                             {modelOptions.map(item => (

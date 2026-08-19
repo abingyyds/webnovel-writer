@@ -352,6 +352,8 @@ def create_app(project_root: str | Path | None = None) -> FastAPI:
             username=str(payload.get("username") or ""),
             password=str(payload.get("password") or ""),
             base_url=None,
+            two_factor_code=str(payload.get("twoFactorCode") or payload.get("two_factor_code") or ""),
+            turnstile_token=str(payload.get("turnstileToken") or payload.get("turnstile_token") or ""),
         )
         token = get_store().create_session(user["id"])
         get_store().set_session_cookie(response, token)

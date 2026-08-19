@@ -251,6 +251,24 @@ def _build_cookie(headers: httpx.Headers) -> str:
     return "; ".join(cookie.split(";", 1)[0] for cookie in cookies if cookie)
 
 
+def _merge_cookies(*values: str) -> str:
+    cookies: dict[str, str] = {}
+    for value in values:
+        for part in str(value or "").split(";"):
+            if "=" not in part:
+                continue
+            name, cookie_value = part.split("=", 1)
+            if name.strip():
+                cookies[name.strip()] = cookie_value.strip()
+    return "; ".join(f"{name}={value}" for name, value in cookies.items())
+
+
+def _two_factor_error(message: str, code: str) -> HTTPException:
+    error = HTTPException(401, message)
+    error.code = code
+    return error
+
+
 def _bearer(api_key: str) -> str:
     return f"Bearer {api_key.removeprefix('Bearer ').removeprefix('bearer ')}"
 
@@ -479,6 +497,8 @@ class PlatformStore:
         username: str,
         password: str,
         base_url: str | None = None,
+        two_factor_code: str = "",
+        turnstile_token: str = "",
     ) -> dict[str, Any]:
         username = username.strip()
         password = password.strip()
@@ -498,12 +518,23 @@ class PlatformStore:
                     continue
                 seen.add(candidate)
                 try:
-                    login = await self._login_subrouterai(client, candidate, username, password)
+                    login = await self._login_subrouterai(
+                        client,
+                        candidate,
+                        username,
+                        password,
+                        two_factor_code=two_factor_code,
+                        turnstile_token=turnstile_token,
+                    )
                     return await self._prepare_subrouterai_account(client, login, fallback_username=username)
                 except HTTPException as exc:
                     last_error = str(exc.detail)
+                    if str(getattr(exc, "code", "")).startswith("SUBROUTER_TWO_FACTOR_"):
+                        break
                 except Exception as exc:
                     last_error = str(exc)
+                    if "双重验证" in last_error or "TWO_FACTOR" in last_error:
+                        break
         raise HTTPException(401, last_error or "用户名或密码错误")
 
     async def _login_subrouterai(
@@ -512,10 +543,15 @@ class PlatformStore:
         base_url: str,
         username: str,
         password: str,
+        *,
+        two_factor_code: str = "",
+        turnstile_token: str = "",
     ) -> dict[str, Any]:
+        params = {"turnstile": turnstile_token.strip()} if turnstile_token.strip() else None
         response = await client.post(
             f"{_normalize_base_url(base_url)}/api/user/login",
             json={"username": username, "password": password},
+            params=params,
         )
         if response.status_code >= 400:
             raise HTTPException(response.status_code, _upstream_error(response, "登录失败"))
@@ -523,11 +559,43 @@ class PlatformStore:
         if isinstance(payload, dict) and payload.get("success") is False:
             raise HTTPException(401, str(payload.get("message") or "用户名或密码错误"))
         cookie = _build_cookie(response.headers)
+        user = _extract_user(payload)
+        distributor = _extract_distributor(payload)
+        body = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        requires_two_factor = body.get("require_2fa") or body.get("require2fa") or payload.get("require_2fa") or payload.get("require2fa")
+        if requires_two_factor:
+            if not two_factor_code.strip():
+                raise _two_factor_error(
+                    "该 SubRouter 账号启用了双重验证，请输入验证码后继续",
+                    "SUBROUTER_TWO_FACTOR_REQUIRED",
+                )
+            if not cookie:
+                raise _two_factor_error("双重验证会话已失效，请重新登录", "SUBROUTER_TWO_FACTOR_SESSION_EXPIRED")
+            verification = await client.post(
+                f"{_normalize_base_url(base_url)}/api/user/login/2fa",
+                headers={"Cookie": cookie},
+                json={"code": two_factor_code.strip()},
+            )
+            if verification.status_code >= 400:
+                raise _two_factor_error(
+                    _upstream_error(verification, "双重验证码错误"),
+                    "SUBROUTER_TWO_FACTOR_INVALID",
+                )
+            verified = verification.json()
+            if isinstance(verified, dict) and verified.get("success") is False:
+                raise _two_factor_error(
+                    str(verified.get("message") or "双重验证码错误"),
+                    "SUBROUTER_TWO_FACTOR_INVALID",
+                )
+            payload = verified
+            cookie = _merge_cookies(cookie, _build_cookie(verification.headers))
         if not cookie:
             raise HTTPException(502, "登录成功但未返回会话凭据")
-        user = _extract_user(payload)
+        verified_user = _extract_user(payload)
+        if verified_user.get("id") or verified_user.get("username") or verified_user.get("email"):
+            user = verified_user
+        distributor = _extract_distributor(payload) or distributor
         external_id = str(user.get("id") or "").strip()
-        distributor = _extract_distributor(payload)
         return {
             "provider": "subrouterai",
             "base_url": _normalize_base_url(base_url),
@@ -649,7 +717,13 @@ class PlatformStore:
         name = f"{AUTO_KEY_PREFIX}-{int(time.time())}"
         if login.get("distributor"):
             path = "/api/user/self/distributor/token/create"
-            body = {"name": name, "key_group_id": 0}
+            body = {
+                "name": name,
+                "key_group_id": 0,
+                "group": "subrouter",
+                "include_official_channels": True,
+                "official_key_max_discount": 0,
+            }
         else:
             path = "/api/token/"
             body = {
@@ -659,6 +733,8 @@ class PlatformStore:
                 "remain_quota": 0,
                 "unlimited_quota": True,
                 "model_limits_enabled": False,
+                "include_official_channels": True,
+                "official_key_max_discount": 0,
             }
         response = await client.post(f"{login['base_url']}{path}", headers=headers, json=body)
         if response.status_code >= 400:
