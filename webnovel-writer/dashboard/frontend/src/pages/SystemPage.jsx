@@ -364,7 +364,7 @@ export default function SystemPage() {
 
                     <form className="model-config-form" onSubmit={saveModelSettings}>
                         <label className="form-field">
-                            <span>选择 SubRouter 默认模型</span>
+                            <span>选择默认模型</span>
                             <select
                                 value={selectedModel}
                                 onChange={event => setSelectedModel(event.target.value)}

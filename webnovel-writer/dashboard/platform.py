@@ -566,7 +566,7 @@ class PlatformStore:
         if requires_two_factor:
             if not two_factor_code.strip():
                 raise _two_factor_error(
-                    "该 SubRouter 账号启用了双重验证，请输入验证码后继续",
+                    "该账号启用了双重验证，请输入验证码后继续",
                     "SUBROUTER_TWO_FACTOR_REQUIRED",
                 )
             if not cookie:

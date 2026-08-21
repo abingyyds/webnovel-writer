@@ -85,7 +85,7 @@ export default function LoginPage({ onSignedIn }) {
                                 />
                             </label>
                             <label className="form-field">
-                                <span>SubRouter 双重验证码（如已启用）</span>
+                                <span>双重验证码（如已启用）</span>
                                 <input autoComplete="one-time-code" inputMode="numeric" value={form.twoFactorCode} onChange={event => updateField('twoFactorCode', event.target.value)} placeholder="可选" />
                             </label>
                             <label className="form-field">
